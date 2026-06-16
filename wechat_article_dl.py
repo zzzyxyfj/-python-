@@ -8,13 +8,13 @@
 - 保持内容一致性，优化排版结构
 - 自动将 HTML 表格转为 Markdown 表格
 - 自动去除文末打赏、广告、公众号推荐、往期推荐等非正文内容
+- 支持单篇抓取与批量抓取（URL 列表文件）
 
 依赖：pip install lxml
 
 用法：
-  python wechat_article_dl.py <文章URL> [-o 输出路径]
-  示例:
-  python wechat_article_dl.py "https://mp.weixin.qq.com/s/-6IwGXO-zwi6I8kWojSB4A"
+  单篇: python wechat_article_dl.py <URL> [-o 输出路径]
+  批量: python wechat_article_dl.py -b urls.txt [-d 输出目录]
 """
 
 import html as html_mod
@@ -44,6 +44,7 @@ HEADERS = {
 
 
 def fetch(url, timeout=30):
+    """获取文章 HTML。"""
     req = Request(url, headers=HEADERS)
     with urlopen(req, timeout=timeout) as r:
         b = r.read()
@@ -54,6 +55,7 @@ def fetch(url, timeout=30):
 
 
 def get_meta(html_text):
+    """提取标题、作者、发布时间。"""
     meta = {}
     m = re.search(r'<h1[^>]*class="rich_media_title[^"]*"[^>]*>([\s\S]*?)</h1>', html_text)
     meta["title"] = re.sub(r"<[^>]+>", "", m.group(1)).strip() if m else "无标题"
@@ -76,6 +78,7 @@ def get_meta(html_text):
 
 
 def get_content(html_text):
+    """从 js_content 提取正文 HTML（处理嵌套 div）。"""
     start = html_text.find('id="js_content"')
     if start < 0:
         print("错误：未找到 js_content。")
@@ -129,7 +132,6 @@ def _is_block(text):
 
 def clean(html_text):
     """清理推广内容：逐段删除 + 尾部卡片截断 + 尾部装饰截断。"""
-    # 1) 逐段删除含推广词的短段落
     parts = []
     for block in re.split(r'(<(?:section|p|div|span)[^>]*>|</(?:section|p|div|span)>)', html_text):
         text = re.sub(r"<[^>]+>", "", block).strip()
@@ -137,8 +139,6 @@ def clean(html_text):
             continue
         parts.append(block)
     html_text = "".join(parts)
-
-    # 2) 截断尾部推荐卡片（linktype="image"）
     card_pat = re.compile(r'<a[^>]*linktype="image"[^>]*data-linktype="1"[^>]*>')
     cut_at = len(html_text)
     for m in card_pat.finditer(html_text):
@@ -146,14 +146,10 @@ def clean(html_text):
         break
     if cut_at < len(html_text):
         return html_text[:cut_at]
-
-    # 3) 关键词尾部截断
     for kw in ["往期推荐", "推荐阅读", "更多推荐", "精彩回顾"]:
         idx = html_text.rfind(kw)
         if idx > len(html_text) * 0.3:
             return html_text[:idx]
-
-    # 4) 截断尾部装饰性内容
     last_sec = html_text.rfind("</section>")
     if last_sec > len(html_text) * 0.5:
         trail = html_text[last_sec + 10:]
@@ -213,13 +209,9 @@ def _build_markdown_table(rows):
         return ""
     ncols = max(len(r) for r in rows)
     lines = ["\n"]
-    # header 行
     lines.append("| " + " | ".join(rows[0]) + " |\n")
-    # 分隔行
     lines.append("|" + "|".join([" --- " for _ in range(ncols)]) + "|\n")
-    # 数据行
     for row in rows[1:]:
-        # 补齐列数
         padded = list(row) + [""] * (ncols - len(row))
         lines.append("| " + " | ".join(padded) + " |\n")
     lines.append("\n")
@@ -231,20 +223,13 @@ def _render(node):
     tag = node.tag if isinstance(node.tag, str) else None
     if tag is None:
         return (node.text or "").strip()
-
-    # --- 表格 ---
     if tag == "table":
         rows = _collect_rows(node)
         return _build_markdown_table(rows)
     if tag in ("thead", "tbody", "tfoot", "tr", "col", "colgroup"):
-        # 这些由 table 处理器统一处理，跳过
         return ""
     if tag in ("th", "td"):
-        # 由 table 处理器收集，但如果独立出现则渲染内容
-        raw = "".join(_render(c) for c in node)
-        return raw.strip()
-
-    # --- 图片 ---
+        return "".join(_render(c) for c in node).strip()
     if tag == "img":
         src = node.get("src") or node.get("data-src") or ""
         if src:
@@ -254,8 +239,6 @@ def _render(node):
         return "\n"
     if tag == "hr":
         return "\n---\n"
-
-    # --- 文本 ---
     texts = []
     if node.text:
         t = node.text.strip()
@@ -270,7 +253,6 @@ def _render(node):
             if tt:
                 texts.append(tt)
     raw = "".join(texts)
-
     if tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
         return "\n" + "#" * int(tag[1]) + " " + raw.strip() + "\n"
     if tag in ("strong", "b"):
@@ -332,11 +314,11 @@ def polish(md):
     md = re.sub(r'^\s*NightCTI\s*$', '', md, flags=re.MULTILINE)
     md = re.sub(r'\*\*夜组安全\*\*.*?\uff0c\s*\n', '', md)
     md = re.sub(r'^\s*##\s*$', '', md, flags=re.MULTILINE)
-    md = re.sub(r'^\s*功能\s*$', '', md, flags=re.MULTILINE)
-    md = re.sub(r'^\s*描述\s*$', '', md, flags=re.MULTILINE)
     md = re.sub(r'\n{3,}', '\n\n', md)
     return md.strip() + "\n"
 
+
+# ── 单篇模式 ───────────────────────────────
 
 def run(url, output_path=None):
     print("正在抓取:", url)
@@ -380,10 +362,149 @@ def run(url, output_path=None):
     return os.path.abspath(output_path)
 
 
+# ── 批量模式 ───────────────────────────────
+
+def run_url(url, output_dir=None):
+    """
+    处理单个 URL，返回 (是否成功, 输出路径或错误消息)。
+    每步都有独立 try/except，一个 URL 失败不影响后续。
+    """
+    try:
+        raw = fetch(url)
+    except Exception as e:
+        return False, "网络请求失败: " + str(e)
+
+    try:
+        meta = get_meta(raw)
+    except Exception:
+        meta = {"title": "未知标题", "author": "未知作者", "publish_time": ""}
+
+    try:
+        content = get_content(raw)
+        if not content:
+            return False, "无法提取正文内容"
+    except Exception as e:
+        return False, "正文提取失败: " + str(e)
+
+    try:
+        content = clean(content)
+        content = simplify(content)
+        md = to_md(content)
+        md = polish(md)
+    except Exception as e:
+        return False, "内容转换失败: " + str(e)
+
+    header = (
+        "---\n"
+        "title: " + meta["title"] + "\n"
+        "author: " + meta["author"] + "\n"
+        "source: 微信公众号\n"
+        "url: " + url + "\n"
+        "publish_time: " + meta["publish_time"] + "\n"
+        "download_time: " + time.strftime("%Y-%m-%d %H:%M:%S") + "\n"
+        "---\n\n"
+        "# " + meta["title"] + "\n\n"
+        "> **作者：** " + meta["author"] + "  \n"
+        "> **来源：** 微信公众号  \n"
+        "> **发布时间：** " + meta["publish_time"] + "  \n"
+        "> **原文链接：** [" + url + "](" + url + ")\n"
+        "\n---\n\n"
+    )
+
+    safe = re.sub(r'[\\/:*?"<>|]', "_", meta["title"])
+    safe = re.sub(r"\s+", "_", safe)[:80]
+    safe = safe or "untitled"
+    filename = safe + ".md"
+
+    try:
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = os.path.join(output_dir, filename)
+        else:
+            output_path = filename
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(header + md)
+    except Exception as e:
+        return False, "文件写入失败: " + str(e)
+
+    return True, output_path
+
+
+def batch_run(url_file, output_dir=None):
+    """
+    批量模式：从文件中逐行读取 URL 并处理。
+    支持 # 和 // 注释行，自动跳过非 URL 行。
+    """
+    if not os.path.isfile(url_file):
+        print("[错误] 文件不存在:", url_file)
+        return
+
+    with open(url_file, "r", encoding="utf-8") as f:
+        lines = [line.strip() for line in f if line.strip()]
+
+    urls = []
+    for line in lines:
+        if line.startswith("#") or line.startswith("//"):
+            continue
+        if line.startswith("http://") or line.startswith("https://"):
+            urls.append(line)
+        else:
+            print("[跳过] 非 URL 行:", line[:80])
+
+    if not urls:
+        print("[错误] 文件中没有有效的 URL")
+        return
+
+    print("=" * 50)
+    print("批量抓取启动 — 共 %d 篇文章" % len(urls))
+    print("输出目录: %s" % (os.path.abspath(output_dir) if output_dir else "当前目录"))
+    print("=" * 50)
+
+    success = 0
+    fail = 0
+    results = []
+
+    for i, url in enumerate(urls, 1):
+        print("\n[%d/%d] %s" % (i, len(urls), url))
+        print("-" * 40)
+        ok, info = run_url(url, output_dir)
+        if ok:
+            success += 1
+            results.append((url, True, info))
+            print("  [OK] %s" % info)
+        else:
+            fail += 1
+            results.append((url, False, info))
+            print("  [失败] %s" % info)
+
+    print("\n" + "=" * 50)
+    print("批量抓取完成")
+    print("  总计: %d" % len(urls))
+    print("  成功: %d" % success)
+    print("  失败: %d" % fail)
+    if fail > 0:
+        print("\n失败详情:")
+        for url, ok, info in results:
+            if not ok:
+                print("  " + url)
+                print("    原因: " + info)
+    print("=" * 50)
+
+
+# ── CLI 入口 ───────────────────────────────
+
 if __name__ == "__main__":
     import argparse
     p = argparse.ArgumentParser(description="微信公众号文章下载器")
-    p.add_argument("url", help="文章 URL")
-    p.add_argument("-o", "--output", help="输出路径")
+    p.add_argument("url", nargs="?", help="文章 URL（单篇模式）")
+    p.add_argument("-o", "--output", help="输出文件路径（单篇模式）")
+    p.add_argument("-b", "--batch", help="批量模式，指定 URL 列表文件路径")
+    p.add_argument("-d", "--dir", help="批量模式输出目录（默认当前目录）")
     args = p.parse_args()
-    run(args.url, args.output)
+
+    if args.batch:
+        batch_run(args.batch, args.dir)
+    elif args.url:
+        run(args.url, args.output)
+    else:
+        p.print_help()
