@@ -55,23 +55,23 @@ python wechat_article_dl.py "https://mp.weixin.qq.com/s/xxx" -o 我的文章.md
 ## 运行示例
 
 ```bash
-$ python wechat_article_dl.py "https://mp.weixin.qq.com/s/-6IwGXO-zwi6I8kWojSB4A"
-正在抓取: https://mp.weixin.qq.com/s/-6IwGXO-zwi6I8kWojSB4A
-标题: 牛逼！AI 驱动的后渗透综合管理平台...
-作者: 夜组安全
+$ python wechat_article_dl.py "https://mp.weixin.qq.com/s/-6IxxxO-zwixxxxSB4A"
+正在抓取: https://mp.weixin.qq.com/s/-6IxxxxGXO-zwi6IxxxA
+标题: Title...
+作者: xxxx
 发布: 2026-06-16 07:30:00
 正文: 131016 字符
 清理后: 121442 字符
 
-[OK] 已保存: 牛逼！AI_驱动的后渗透综合管理平台...md
+[OK] 已保存: Title...md
 ```
 
 **输出文件预览：**
 
 ```markdown
 ---
-title: 牛逼！AI 驱动的后渗透综合管理平台...
-author: 夜组安全
+title: xxxxx...
+author: xxxx
 source: 微信公众号
 url: https://mp.weixin.qq.com/s/...
 publish_time: 2026-06-16 07:30:00
@@ -79,7 +79,7 @@ publish_time: 2026-06-16 07:30:00
 
 # 文章标题
 
-> **作者：** 夜组安全
+> **作者：** xxxx
 > **来源：** 微信公众号
 > **发布时间：** 2026-06-16 07:30:00
 
