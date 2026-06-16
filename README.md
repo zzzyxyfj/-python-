@@ -46,6 +46,26 @@ python wechat_article_dl.py "https://mp.weixin.qq.com/s/xxx"
 
 脚本会自动以文章标题生成 `.md` 文件，保存在当前目录。
 
+## 多url处理
+创建 URL 列表文件 urls.txt：
+### 公众号文章列表（支持 # 和 // 注释）
+```bash
+https://mp.weixin.qq.com/s/xxx
+https://mp.weixin.qq.com/s/yyy
+```
+运行批量模式：
+```bash
+python wechat_article_dl.py -b urls.txt -d output_dir
+````
+脚本会：
+逐行读取 URL，自动跳过注释行和无效行
+每篇文章独立处理，一篇失败不影响后续
+每步都有 try/except 包裹（网络请求、元数据提取、正文解析、转换、写入），异常精确到环节
+输出到指定目录（不指定则当前目录），每篇文章一个 .md 文件
+完成后打印汇总报表：总计 / 成功 / 失败 + 失败详情
+
+注意该功能未做测试
+
 **指定输出路径：**
 
 ```bash
